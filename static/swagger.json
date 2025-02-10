@@ -97,8 +97,27 @@
             "200": { "description": "Coffee deleted" },
             "404": { "description": "Coffee not found" }
           }
+        },
+      "paths": {
+      "/order": {
+        "post": {
+          "summary": "Order coffee by ID",
+          "parameters": [
+            {
+              "name": "coffee_id",
+              "in": "path",
+              "required": true,
+              "type": "integer"
+            }
+          ],
+          "responses": {
+            "200": { "description": "Coffee order placed" },
+            "404": { "description": "Coffee not found" }
+          }
         }
       }
     }
   }
+  }
+}
   

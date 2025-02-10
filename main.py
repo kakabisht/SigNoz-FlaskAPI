@@ -1,19 +1,36 @@
 from flask import Flask, request, jsonify
 from flask_swagger_ui import get_swaggerui_blueprint
 import logging
-from opentelemetry.instrumentation.flask import FlaskInstrumentor
+import requests
+import datetime
+
+from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.trace import get_current_span
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.exporter.prometheus import PrometheusMetricReader
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 # Initialize Flask App
 app = Flask(__name__)
 
+SIGNOZ_LOGS_URL = "<SigNoz-Log-endpoint>"
+SIGNOZ_INGESTION_KEY = "<SigNoz-ingestion-key>"
+SIGNOZ_OTLP_ENDPOINT = "<SigNoz-OLTP-endpoint>"
+OTEL_EXPORTER_OTLP_PROTOCOL="grpc" 
+
 # OpenTelemetry Tracing
-FlaskInstrumentor().instrument_app(app)
 tracer_provider = TracerProvider()
-tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint="http://localhost:4317")))
+exporter = OTLPSpanExporter(endpoint=SIGNOZ_OTLP_ENDPOINT, headers={"signoz-ingestion-key": SIGNOZ_INGESTION_KEY})
+tracer_provider.add_span_processor(BatchSpanProcessor(exporter))
+trace.set_tracer_provider(tracer_provider)
+tracer = trace.get_tracer(__name__)
+
+# OpenTelemetry Metrics
+meter_provider = MeterProvider(metric_readers=[PrometheusMetricReader()])
+meter = meter_provider.get_meter(__name__)
+requests_counter = meter.create_counter("http_requests_total", "Number of HTTP requests received")
 
 # Logging Configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - TraceID: %(trace_id)s - %(message)s')
@@ -27,17 +44,14 @@ coffees = [
     {"id": 4, "name": "Chai", "price": 1.5}
 ]
 
-# You can also configure an external database
-
 def get_trace_id():
     """Retrieve the current trace ID from OpenTelemetry."""
-    span = get_current_span()
-    if span and span.get_span_context():
-        return span.get_span_context().trace_id
-    return "NoTrace"
+    span = trace.get_current_span()
+    return format(span.get_span_context().trace_id, '032x') if span and span.get_span_context() else "NoTrace"
 
 @app.before_request
 def log_request():
+    requests_counter.add(1)
     logger.info(f"Incoming request: {request.method} {request.url} - Trace ID: {get_trace_id()}")
 
 @app.after_request
@@ -45,54 +59,52 @@ def log_response(response):
     logger.info(f"Response: {response.status_code} - Trace ID: {get_trace_id()}")
     return response
 
+def send_log_to_signoz(level, message):
+    """Send structured logs to SigNoz"""
+    headers = {
+        "signoz-ingestion-key": SIGNOZ_INGESTION_KEY,
+        "Content-Type": "application/json"
+    }
+    log_data = {
+        "logs": [{
+            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            "serviceName": "CoffeeShopAPI",
+            "level": level,
+            "message": message,
+            "traceId": get_trace_id()
+        }]
+    }
+    try:
+        requests.post(SIGNOZ_LOGS_URL, headers=headers, json=log_data)
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error sending log: {e}")
+
 @app.route('/coffees', methods=['GET'])
 def get_coffees():
     """Get all coffees"""
-    logger.info("Fetching all coffees", extra={"trace_id": get_trace_id()})
-    return jsonify({"coffees": coffees}), 200
+    with tracer.start_as_current_span("get_coffees"):
+        send_log_to_signoz("INFO", "Fetching all coffees")
+        return jsonify({"coffees": coffees}), 200
 
-@app.route('/coffees', methods=['POST'])
-def add_coffee():
-    """Add a new coffee"""
+@app.route('/order', methods=['POST'])
+def order_coffee():
+    """Order a coffee"""
     data = request.get_json()
-    if "name" not in data or "price" not in data:
-        logger.error("Invalid request: Missing 'name' or 'price'")
-        return jsonify({"error": "Name and price are required"}), 400
-
-    new_coffee = {"id": len(coffees) + 1, "name": data["name"], "price": data["price"]}
-    coffees.append(new_coffee)
-    logger.info(f"Added new coffee: {new_coffee}", extra={"trace_id": get_trace_id()})
-    return jsonify(new_coffee), 201
-
-@app.route('/coffees/<int:coffee_id>', methods=['GET'])
-def get_coffee(coffee_id):
-    """Get coffee by ID"""
-    coffee = next((c for c in coffees if c["id"] == coffee_id), None)
-    if not coffee:
-        logger.warning(f"Coffee with id {coffee_id} not found", extra={"trace_id": get_trace_id()})
-        return jsonify({"error": "Coffee not found"}), 404
-    return jsonify(coffee), 200
-
-@app.route('/coffees/<int:coffee_id>', methods=['PUT'])
-def update_coffee(coffee_id):
-    """Update coffee by ID"""
+    coffee_id = data.get("coffee_id")
     coffee = next((c for c in coffees if c["id"] == coffee_id), None)
     if not coffee:
         return jsonify({"error": "Coffee not found"}), 404
+    
+    with tracer.start_as_current_span("order_coffee") as span:
+        span.set_attribute("coffee_name", coffee["name"])
+        span.set_attribute("price", coffee["price"])
+        send_log_to_signoz("INFO", f"Ordered coffee: {coffee['name']}")
+        return jsonify({"message": f"Order received for {coffee['name']}"}), 200
 
-    data = request.get_json()
-    coffee["name"] = data.get("name", coffee["name"])
-    coffee["price"] = data.get("price", coffee["price"])
-    logger.info(f"Updated coffee: {coffee}", extra={"trace_id": get_trace_id()})
-    return jsonify(coffee), 200
-
-@app.route('/coffees/<int:coffee_id>', methods=['DELETE'])
-def delete_coffee(coffee_id):
-    """Delete coffee by ID"""
-    global coffees
-    coffees = [c for c in coffees if c["id"] != coffee_id]
-    logger.info(f"Deleted coffee with id {coffee_id}", extra={"trace_id": get_trace_id()})
-    return jsonify({"message": "Coffee deleted"}), 200
+@app.route("/metrics")
+def metrics():
+    """Expose Prometheus metrics"""
+    return generate_latest(), 200, {"Content-Type": CONTENT_TYPE_LATEST}
 
 # Swagger Documentation
 SWAGGER_URL = "/docs"
