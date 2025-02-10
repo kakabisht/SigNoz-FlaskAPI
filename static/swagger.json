@@ -1,123 +1,75 @@
 {
-    "swagger": "2.0",
-    "info": {
-      "title": "Coffee Shop API",
-      "description": "A simple CRUD API for managing coffee items",
-      "version": "1.0.0"
-    },
-    "host": "127.0.0.1:5000",
-    "schemes": ["http"],
-    "paths": {
-      "/coffees": {
-        "get": {
-          "summary": "Get all coffees",
-          "responses": {
-            "200": {
-              "description": "A list of coffees"
-            }
-          }
-        },
-        "post": {
-          "summary": "Add a new coffee",
-          "parameters": [
-            {
-              "in": "body",
-              "name": "body",
-              "required": true,
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "name": { "type": "string" },
-                  "price": { "type": "number" }
-                }
-              }
-            }
-          ],
-          "responses": {
-            "201": {
-              "description": "Coffee created"
-            }
+  "swagger": "2.0",
+  "info": {
+    "title": "CoffeeShopAPI",
+    "description": "API for managing a coffee shop menu and orders",
+    "version": "1.0.0"
+  },
+  "host": "localhost:5000",
+  "schemes": ["http"],
+  "paths": {
+    "/coffees": {
+      "get": {
+        "summary": "Get all coffees",
+        "responses": {
+          "200": {
+            "description": "List of coffees",
+            "schema": {"type": "object", "properties": {"coffees": {"type": "array", "items": {"$ref": "#/definitions/Coffee"}}}}
           }
         }
       },
-      "/coffees/{coffee_id}": {
-        "get": {
-          "summary": "Get coffee by ID",
-          "parameters": [
-            {
-              "name": "coffee_id",
-              "in": "path",
-              "required": true,
-              "type": "integer"
-            }
-          ],
-          "responses": {
-            "200": { "description": "Coffee found" },
-            "404": { "description": "Coffee not found" }
-          }
-        },
-        "put": {
-          "summary": "Update coffee by ID",
-          "parameters": [
-            {
-              "name": "coffee_id",
-              "in": "path",
-              "required": true,
-              "type": "integer"
-            },
-            {
-              "in": "body",
-              "name": "body",
-              "required": true,
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "name": { "type": "string" },
-                  "price": { "type": "number" }
-                }
-              }
-            }
-          ],
-          "responses": {
-            "200": { "description": "Coffee updated" },
-            "404": { "description": "Coffee not found" }
-          }
-        },
-        "delete": {
-          "summary": "Delete coffee by ID",
-          "parameters": [
-            {
-              "name": "coffee_id",
-              "in": "path",
-              "required": true,
-              "type": "integer"
-            }
-          ],
-          "responses": {
-            "200": { "description": "Coffee deleted" },
-            "404": { "description": "Coffee not found" }
-          }
-        },
-      "paths": {
-      "/order": {
-        "post": {
-          "summary": "Order coffee by ID",
-          "parameters": [
-            {
-              "name": "coffee_id",
-              "in": "path",
-              "required": true,
-              "type": "integer"
-            }
-          ],
-          "responses": {
-            "200": { "description": "Coffee order placed" },
-            "404": { "description": "Coffee not found" }
-          }
+      "post": {
+        "summary": "Add a new coffee",
+        "parameters": [{"in": "body", "name": "body", "required": true, "schema": {"$ref": "#/definitions/CoffeeInput"}}],
+        "responses": {"201": {"description": "Coffee added", "schema": {"$ref": "#/definitions/Coffee"}}}
+      }
+    },
+    "/coffees/{coffee_id}": {
+      "get": {
+        "summary": "Get a specific coffee",
+        "parameters": [{"name": "coffee_id", "in": "path", "required": true, "type": "integer"}],
+        "responses": {
+          "200": {"description": "Coffee details", "schema": {"$ref": "#/definitions/Coffee"}},
+          "404": {"description": "Coffee not found"}
         }
+      },
+      "put": {
+        "summary": "Update a coffee",
+        "parameters": [{"name": "coffee_id", "in": "path", "required": true, "type": "integer"}, {"in": "body", "name": "body", "required": true, "schema": {"$ref": "#/definitions/CoffeeInput"}}],
+        "responses": {"200": {"description": "Updated coffee", "schema": {"$ref": "#/definitions/Coffee"}}, "404": {"description": "Coffee not found"}}
+      },
+      "delete": {
+        "summary": "Delete a coffee",
+        "parameters": [{"name": "coffee_id", "in": "path", "required": true, "type": "integer"}],
+        "responses": {"200": {"description": "Coffee deleted"}, "404": {"description": "Coffee not found"}}
+      }
+    },
+    "/order": {
+      "post": {
+        "summary": "Order a coffee",
+        "parameters": [{"in": "body", "name": "body", "required": true, "schema": {"$ref": "#/definitions/OrderInput"}}],
+        "responses": {"200": {"description": "Order placed"}, "404": {"description": "Coffee not found"}}
+      }
+    },
+    "/metrics": {
+      "get": {
+        "summary": "Retrieve Prometheus metrics",
+        "responses": {"200": {"description": "Metrics data"}}
       }
     }
-  }
+  },
+  "definitions": {
+    "Coffee": {
+      "type": "object",
+      "properties": {"id": {"type": "integer"}, "name": {"type": "string"}, "price": {"type": "number"}}
+    },
+    "CoffeeInput": {
+      "type": "object",
+      "properties": {"name": {"type": "string"}, "price": {"type": "number"}}
+    },
+    "OrderInput": {
+      "type": "object",
+      "properties": {"coffee_id": {"type": "integer"}}
+    }
   }
 }
-  

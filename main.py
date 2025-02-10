@@ -15,10 +15,9 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 # Initialize Flask App
 app = Flask(__name__)
 
-SIGNOZ_LOGS_URL = "<SigNoz-Log-endpoint>"
-SIGNOZ_INGESTION_KEY = "<SigNoz-ingestion-key>"
-SIGNOZ_OTLP_ENDPOINT = "<SigNoz-OLTP-endpoint>"
-OTEL_EXPORTER_OTLP_PROTOCOL="grpc" 
+SIGNOZ_LOGS_URL = "<SigNoz-logs-url"
+SIGNOZ_INGESTION_KEY = "<SigNoz-ingestion-key"
+SIGNOZ_OTLP_ENDPOINT = "<SigNoz-otlp-endpoint"
 
 # OpenTelemetry Tracing
 tracer_provider = TracerProvider()
@@ -33,7 +32,7 @@ meter = meter_provider.get_meter(__name__)
 requests_counter = meter.create_counter("http_requests_total", "Number of HTTP requests received")
 
 # Logging Configuration
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - TraceID: %(trace_id)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # In-memory Coffee Shop menu
@@ -79,6 +78,7 @@ def send_log_to_signoz(level, message):
     except requests.exceptions.RequestException as e:
         logger.error(f"Error sending log: {e}")
 
+
 @app.route('/coffees', methods=['GET'])
 def get_coffees():
     """Get all coffees"""
@@ -100,6 +100,44 @@ def order_coffee():
         span.set_attribute("price", coffee["price"])
         send_log_to_signoz("INFO", f"Ordered coffee: {coffee['name']}")
         return jsonify({"message": f"Order received for {coffee['name']}"}), 200
+
+@app.route('/coffees', methods=['POST'])
+def add_coffee():
+    with tracer.start_as_current_span("add_coffee") as span:
+        data = request.get_json()
+        new_coffee = {"id": len(coffees) + 1, "name": data["name"], "price": data["price"]}
+        coffees.append(new_coffee)
+        send_log_to_signoz("CoffeeShopAPI", "INFO", f"Added coffee: {new_coffee}")
+        return jsonify(new_coffee), 201
+
+@app.route('/coffees/<int:coffee_id>', methods=['GET'])
+def get_coffee(coffee_id):
+    with tracer.start_as_current_span("get_coffee") as span:
+        coffee = next((c for c in coffees if c["id"] == coffee_id), None)
+        if not coffee:
+            send_log_to_signoz("CoffeeShopAPI", "WARN", f"Coffee ID {coffee_id} not found")
+            return jsonify({"error": "Coffee not found"}), 404
+        return jsonify(coffee)
+
+@app.route('/coffees/<int:coffee_id>', methods=['PUT'])
+def update_coffee(coffee_id):
+    with tracer.start_as_current_span("update_coffee") as span:
+        coffee = next((c for c in coffees if c["id"] == coffee_id), None)
+        if not coffee:
+            return jsonify({"error": "Coffee not found"}), 404
+        data = request.get_json()
+        coffee["name"] = data.get("name", coffee["name"])
+        coffee["price"] = data.get("price", coffee["price"])
+        send_log_to_signoz("CoffeeShopAPI", "INFO", f"Updated coffee: {coffee}")
+        return jsonify(coffee)
+
+@app.route('/coffees/<int:coffee_id>', methods=['DELETE'])
+def delete_coffee(coffee_id):
+    with tracer.start_as_current_span("delete_coffee") as span:
+        global coffees
+        coffees = [c for c in coffees if c["id"] != coffee_id]
+        send_log_to_signoz("CoffeeShopAPI", "INFO", f"Deleted coffee ID {coffee_id}")
+        return jsonify({"message": "Coffee deleted"})
 
 @app.route("/metrics")
 def metrics():
